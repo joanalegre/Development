@@ -1,0 +1,443 @@
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+os.chdir('C:/Users/Joana/Desktop/Cole/18-19/2.Development/ps1/data')
+dollars = 2586.89
+
+#%% ############ Food Consumption
+C = pd.read_csv("gsec15b.csv")
+C = C[["HHID","itmcd","h15bq4","h15bq5","h15bq6","h15bq7","h15bq8","h15bq9","h15bq10","h15bq11","h15bq12","h15bq13"]]
+C.columns = ["hh","code", "purch_home_quant","purch_home_value","purch_away_quant","purch_away_value","own_quant","own_value","gift_quant","gift_value", "m_p", "gate_p"]
+
+pricescons = C.groupby(by="code")[["m_p", "gate_p"]].median() #This is gathering by type of food and finding the median. 
+
+pricescons.to_csv("pricesfood.csv") #This saves the vector into a new document in my folder.
+
+
+############### Own value lives stock.
+livestock = C.loc[C["code"].isin([117,118,119,120,121,122,123,124,125]),["hh","own_value"]] #I think the logic of this is: 
+#we use isin for making all the rows with items of 117-125 true and else false and loc take variables hh and own_ value for the true values.
+
+livestock = livestock.groupby(by="hh").sum()*52 #We sum all values and multiply by number of weeks of a year.
+suml = livestock.describe()/dollars #Describe gives main statistics ( mean, max, quartile...) of livestock.
+
+############### Aggregate across items.
+C = C.groupby(by="hh")[["purch_home_quant","purch_home_value","purch_away_quant","purch_away_value","own_quant","own_value","gift_quant","gift_value"]].sum()
+
+C = C[["purch_home_value", "purch_away_value", "own_value","gift_value"]]
+
+C["cfood"] = C[["purch_home_value", "purch_away_value", "own_value","gift_value"]].sum(axis=1)
+
+C.rename(columns={'total_value':'cfood'}, inplace=True)
+C.rename(columns={'gift_value':'cfood_gift'}, inplace=True)
+C.rename(columns={'own_value':'cfood_own'}, inplace=True)
+
+C["cfood_purch"] = C.loc[:,["purch_home_value","purch_away_value"]].sum(axis=1) 
+C["cfood_nogift"] = C.loc[:,["cfood_purch","own_value"]].sum(axis=1)
+
+############### Food consumption at year level
+C = C[["cfood", "cfood_nogift", "cfood_own", "cfood_purch", "cfood_gift"]]*52
+
+C.reset_index(inplace=True)
+
+data = C
+
+#%% Non-durable Non-food goods:
+C = pd.read_csv("gsec15c.csv")
+C = C[["HHID","itmcd","h15cq5","h15cq7","h15cq9","h15cq10"]]#We take columns of interest
+C.columns = ["hh","code","purch_value","own_value","gift_value", "m_p"] # we rename them
+C = C.groupby(by="hh")[["hh","code","purch_value","own_value","gift_value", "m_p"]].sum() #aggregate
+
+C['cnodur'] = C.fillna(0)["purch_value"] + C.fillna(0)["own_value"] + C.fillna(0)["gift_value"] #fill everything NaN with 0.
+C["cnodur_nogift"] = C.loc[:,["purch_value","own_value"]].sum(axis=1)
+C.rename(columns={'gift_value':'cnodur_gift'}, inplace=True)
+C.rename(columns={'own_value':'cnodur_own'}, inplace=True)
+C.rename(columns={'purch_value':'cnodur_purch'}, inplace=True)
+
+# non food non durable consumption at year level
+C = C[["cnodur", "cnodur_nogift", "cnodur_own", "cnodur_purch", "cnodur_gift"]]*12
+C.reset_index(inplace=True)
+
+data = data.merge(C, on="hh", how="outer")
+
+
+
+#%% DURABLE CONSUMPTION
+C = pd.read_csv("gsec15d.csv")
+C = C[["HHID","h15dq2","h15dq3","h15dq4","h15dq5"]]
+C.columns = ["hh","code","purch_value","own_value","gift_value"]
+
+C = C.groupby(by="hh")[["purch_value","own_value","gift_value"]].sum() #I use 
+C['Cdurable'] = C.fillna(0)["purch_value"] + C.fillna(0)["own_value"] + C.fillna(0)["gift_value"]
+
+C.rename(columns={'Cdurable':'cdur'}, inplace=True)
+C.reset_index(inplace=True)
+
+data = data.merge(C, on="hh", how="outer") #outer is taking all the elements, inner is only taking
+# data for the matches, left is focus only on the left framedata, and right is only for right framdata.
+#%% Create join variables
+
+data["ctotal"] = data.loc[:,["cfood","cnodur"]].sum(axis=1)
+data["ctotal_dur"] = data.loc[:,["cfood","cnodur","cdur"]].sum(axis=1)
+
+data["ctotal_gift"] = data.loc[:,["cfood_gift","cnodur_gift"]].sum(axis=1)
+data["ctotal_dur_gift"] = data.loc[:,["ctotal_gift","cdur_gift"]].sum(axis=1)
+
+data["ctotal_nogift"] = data.loc[:,["cfood_nogift","cnodur_nogift"]].sum(axis=1)
+data["ctotal_dur_nogift"] = data.loc[:,["cfood_nogift","cnodur_nogift"]].sum(axis=1)
+
+data["ctotal_own"] = data.loc[:,["cfood_own","cnodur_own"]].sum(axis=1)
+data["ctotal_dur_own"] = data.loc[:,["ctotal_own","cdur_own"]].sum(axis=1)
+
+
+cdata_short = data[["hh","ctotal","ctotal_dur","ctotal_gift","ctotal_dur_gift","ctotal_nogift","ctotal_dur_nogift","ctotal_own","ctotal_dur_own","cfood","cnodur","cdur"]]
+
+sumc =cdata_short.describe()/dollars 
+
+cdata_short.to_csv("ps1cons.csv", index=False)
+
+#%% Wealth
+A = pd.read_csv("basic13.csv")
+A = A[["hh", "HHID_old"]]
+A.columns = ["HHID", "HHID_old"]
+
+#ASSET HOLDING OF H.H:
+W = pd.read_csv("gsec14a.csv")
+W = W.merge(A, on="HHID", how="left") 
+W = W[["HHID", "h14q5"]] #I take estimated value
+W.columns = ["hh", "asset_value"] 
+wealthasset = W.groupby(by = "hh")[["asset_value"]].sum()
+wealthasset.reset_index(inplace=True)
+
+#W = W.merge(wealthasset, on="hh", how="left")
+#Datawealth = W[["hh","asset_value_y"]]
+#Datawealth.columns = ["hh","asset_value"]
+
+#NOW WE COMPUTE LIFSTOCK WEALTH:
+W = pd.read_csv("agsec6c.csv")
+A.columns = ["HHIDNEW", "HHID"]
+W = W.merge(A, on="HHID", how="left") 
+W = W[["HHID","APCode", "a6cq3a", "a6cq13b", "a6cq14b"]]
+W.columns = ["hh", "code","quantity", "pricebuy", "pricesell"]
+prices =  W.groupby(by="code")[["pricebuy", "pricesell"]].median()
+prices.reset_index(inplace=True)
+
+
+#With prices of buying:
+W = W.merge(prices, on="code", how="left")
+W[['quantity','pricebuy_y']] = W[['quantity','pricebuy_y']].astype(float)
+W['value'] = W['quantity']*W['pricebuy_y']
+W['value'] = W['value'].fillna(0)
+wealthlifestock =  W.groupby(by = "hh")[["value"]].sum()
+wealthlifestock.reset_index(inplace=True)
+wealthlifestock.to_xlsx("wealthlifestock.csv", index=False)
+
+Wealth = wealthasset.merge(wealthlifestock, on="hh", how="outer")
+
+wealthasset[['asset_value']] = wealthasset[['asset_value']].astype(float)
+wealthlifestock[['value']] = wealthlifestock[['value']].astype(float)
+wealthasset[['asset_value']]+wealthlifestock[['value']]
+Wealth = wealthasset[['asset_value']].add(wealthlifestock[['value']], fill_value=0)
+
+#Datawealth = Datawealth.merge(wealth, on="hh", how="left")
+#
+#data = Datawealth.merge(wealth, on="hh", how="outer") 
+
+#Datawealth.merge()
+#Datawealth = W[["hh","assettot"]]
+
+
+
+
+#%% FINDING AGE FOR LIFECICLE:
+
+Age = pd.read_csv("gsec2.csv") 
+Age = Age[["HHID", "h2q4", "h2q8"]]
+Age.columns = ["hh", "head", "age"]
+Age = Age.loc[Age["head"].isin([1]),["hh","head", "age"]] # we need to merge this with wealth, consumption and income.
+
+
+#%%Household notation of agricultural and H.H questionaty:
+
+W = pd.read_csv("gsec14a.csv")
+W = W['HHID']
+W.columns = ['hh']
+C = pd.read_csv("agsec6c.csv")
+C2 = pd.read_csv("agsec8a.csv")
+C = C['HHID']
+C.columns = ['hh']
+
+A = pd.read_csv("basic13.csv")
+
+
+
+
+#%% ##################### I CONSTRUCT CODE TO CREATE ALL THE PROBLEM SET:
+'''GENERAL COMENTS OF DATA:
+    -We have little data, only 1000 out of 3000 households.
+    -Income has negative values.
+    -Consumption is 0 for some houses.
+    -Some houses have 0 income, 0 wealth and high consumption.
+    -Behaviour CIW do not make sense.
+    -SCALE may not be correct, consumption is fairly homogenous, 
+    income and wealth has values from 0 to millions.
+    '''
+#   QUESTION 1.1:
+data = pd.read_csv("ps1_data.csv")
+data['inctotal'] = data['inctotal'].fillna(0)
+urban = data.loc[data["urban"].isin([1]),["HHID","ctotal","total_W","inctotal"]]
+urban.columns = ['hh','urban consumption','urban wealth', 'urban income']
+rural = data.loc[data["urban"].isin([0]),["HHID","ctotal","total_W","inctotal"]]
+rural.columns = ['hh','rural consumption','rural wealth', 'rural income']
+#I do not do only mean, I make the main descriptive statistics with 'describe'.
+#Notice that I drop all the Household with NaN consumption, I can accept that for
+# income and wealth, but not for consumption.
+
+curban = urban[["urban consumption"]]
+curban = curban.dropna()
+wurban = urban[["urban wealth"]]
+iurban = urban[["urban income"]]
+sum_curban = curban.describe()
+sum_wurban = wurban.describe()
+sum_iurban = iurban.describe()
+print(sum_curban.to_latex())
+print(sum_wurban.to_latex())
+print(sum_iurban.to_latex())
+
+
+crural = rural[["rural consumption"]]
+crural = crural.dropna()
+wrural = rural[["rural wealth"]]
+irural = rural[["rural income"]]
+sum_crural = crural.describe()
+sum_wrural = wrural.describe()
+sum_irural = irural.describe()
+print(sum_crural.to_latex())
+print(sum_wrural.to_latex())
+print(sum_irural.to_latex())
+
+# QUESTION 1.2:
+#Comparation:
+# IMPORTANT NOTE: WE NEED TO SEEE IF SCALES ARE CORRECT, SINCE INCOME IS 
+# IN HUNDRED THOUSAND AND CONSUMPTION IN THOUSANDS.
+
+#BINS:
+curban.hist(bins = 20)
+wurban.hist(bins= 20)
+iurban.hist(bins= 20)
+crural.hist(bins= 20)
+wrural.hist(bins= 20)
+irural.hist(bins= 20)
+
+# VARIANCES:
+###RURAL.
+#Since logarithm of 0 is menus infinite, I convert these values to 0. Variance will be undervaluated.
+lncrural = np.log(crural)
+varcrural =  np.var(lncrural)
+irural = irural.replace(0, 1)
+lnirural = np.log(irural)
+varirural =  np.var(lnirural)
+wrural = wrural.replace(0, 1)
+lnwrural = np.log(wrural)
+varwrural =  np.var(lnwrural)
+### Urban.
+
+lncurban = np.log(curban)
+varcurban = np.var(lncurban)
+iurban = iurban.replace(0, 1)
+lniurban = np.log(iurban)
+iurban = lniurban.fillna(0)
+variurban = np.var(lniurban)
+wurban = wurban.replace(0, 1)
+lnwurban = np.log(wurban)
+wurban = lniurban.fillna(0)
+varwurban = np.var(lnwurban)
+
+# QUESTION 1.3
+#I remove 0 consumption people:
+urban = urban.dropna()
+rural = rural.dropna()
+ax = rural.plot.hist(bins=12, alpha=0.5)
+ax = urban.plot.hist(bins=12, alpha=0.5)
+
+#QUESTION 1.4: LIFECICLE CIW:
+age = np.linspace(16,100,10000)
+A = data.groupby(by = "age")[["ctotal","total_W","inctotal"]].mean()
+A.reset_index(inplace=True)
+consumcoef = np.polynomial.polynomial.polyfit(A['age'],A['ctotal'], 1)
+con = consumcoef[0]+consumcoef[1]*age # +consumcoef[2]*pow(age,2)
+wealthcoef = np.polynomial.polynomial.polyfit(A['age'],A['total_W'], 1)
+wealth = wealthcoef[0]+wealthcoef[1]*age # +wealthcoef[2]*pow(age,2)
+incomecoef = np.polynomial.polynomial.polyfit(A['age'],A['inctotal'], 1)
+income = incomecoef[0]+incomecoef[1]*age # +incomecoef[2]*pow(age,2)
+
+plt.plot(age,con, label = 'consumption over lifecicle')
+plt.ylabel('consumption', size = 20)
+plt.xlabel('Age', size = 20)
+plt.legend()
+plt.show()
+
+
+plt.plot(age,wealth, label = 'wealth over lifecicle')
+plt.ylabel('wealth', size = 20)
+plt.xlabel('Age', size = 20)
+plt.legend()
+plt.show()
+
+
+plt.plot(age,income, label = 'income over lifecicle')
+plt.ylabel('income', size = 20)
+plt.xlabel('Age', size = 20)
+plt.legend()
+plt.show()
+
+#1.5 #RANKING INCOME AND ANALYZING BEHAVIOR OF WEALTH AND CONSUMPTION.
+#I will drop income = 0:
+#PROBLEM WITH INCOME NEGATIVE, LOW INCOME PART MAKE NO SENSE AT ALL.
+
+data['inctotal'] = data['inctotal'].replace(0,float('NaN'))
+data = data[["HHID","inctotal","total_W","ctotal"]]
+data = data.dropna()
+N = round(len(data)/4)
+incomelow = data.sort_values(['inctotal'], ascending=True).head(N) #With this I take the 25% largest income.
+incomelow = incomelow[["HHID","Income hight"]]
+incomehight = data.sort_values(['inctotal'], ascending=False).head(N)
+
+plt.scatter(incomelow['inctotal'],incomelow['total_W'], label = 'Wealth')
+plt.scatter(incomelow['inctotal'],incomelow['ctotal'], label = 'consumption')
+plt.title('Low income')
+plt.ylabel('wealth and Consumption', size = 10)
+plt.xlabel('Income', size = 20)
+plt.legend()
+plt.show()
+
+
+plt.scatter(incomehight['inctotal'],incomehight['total_W'], label = 'Wealth')
+plt.scatter(incomehight['inctotal'],incomehight['ctotal'], label = 'consumption')
+plt.title('Hight income')
+plt.ylabel('wealth and Consumption', size = 10)
+plt.xlabel('Income', size = 20)
+plt.legend()
+plt.show()
+
+#QUESTION 2:
+#%% LABOUR DATA:
+'''METHOD: I took for extensive labour number of people from the household that worked
+paid or not paid, for somebody, running a business, on the family farm, I sum every
+individual. For example, if one is working in farm and business will count as 2.'''
+
+os.chdir('C:/Users/Joana/Desktop/Cole/18-19/2.Development/ps1/data2/UGA_2013_UNPS_v01_M_STATA8')
+
+'''1 if urban, 0 if rural '''
+data = pd.read_stata("gsec1.dta")
+dataurban = data[["HHID","urban"]]
+dataurban = dataurban.replace(['Urban', 'Rural'], 
+                     [1, 0])
+
+'''in Gender, 1 if women, 0 if men '''
+data = pd.read_stata("gsec2.dta")
+dataage = data[["HHID","h2q8", "h2q3"]]
+dataage.columns = [["HHID","Age", "Gender"]]
+dataage = dataage.replace(['Female', 'Male'], 
+                     [1, 0])
+dataage.columns = ['HHID','Age', 'Gender']
+
+data = dataage.merge(dataurban, on="HHID", how="left")
+
+'''Less than primary is 0, primary is 1, and more or equal than secundary is 2 .
+Don't know is understood as less than primary.'''
+school = pd.read_stata("gsec3.dta")
+school = school[["HHID","h3q3"]].dropna()
+school.columns = ["HHID","school"]
+school = school.replace(['No formal education (*OLD*)', 'Less than primary (*OLD*)', 
+                           'Some schooling but not Completed P.1','DK','Completed P.1','Completed P.2'
+                           ,'Completed P.3', 'Completed P.4', 'Completed P.5', 'Completed P.6','Completed P.7'
+                           ,'Completed J.1', 'Completed J.2', 'Completed J.3', '	Completed primary (*OLD*)'
+                           ,'Completed S.1', 'Completed S.2', 'Completed S.3', 'Completed S.4'
+                           ,'Completed S.5', 'Completed S.6', 'Completed Post primary Specialized training or Certificate'
+                           ,'Completed Post secondary Specialized training or diploma', 'Completed Degree and above'
+                           , 'Some secondary', 'Some primary', 'Never attended school', 'Completed O-level (*OLD*)'
+                           ,'Completed A-level (*OLD*)', 'Completed University (*OLD*)', 'Don\'t know (*OLD*)', 'Completed primary (*OLD*)', '	Other (Specify) (*OLD*)'], 
+                     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 2, 2, 2, 0, 1, 0])
+
+data1 = data.merge(school, on="HHID", how="left")
+
+'''METHOD: I took for intensive labour hours worked the whole week, 
+I add it, and I multiply by 52 '''
+
+data = pd.read_stata("gsec8_1.dta")
+data = data.merge(data1, on="HHID", how="left") 
+data = data[["HHID","h8q5","h8q7","h8q9","h8q13", "urban"]]
+data.columns = ["hh", "paid", "busines", "non-paid", "farm", "urban"]
+data = data.replace(['No', 'Yes', 'nan'], 
+                     [0, 1, float('NaN')]).dropna()
+
+dataurban = data.loc[data["urban"].isin([1]),["hh", "paid", "busines", "non-paid", "farm"]]
+datarural = data.loc[data["urban"].isin([0]),["hh", "paid", "busines", "non-paid", "farm"]]
+
+
+dataurban = dataurban.groupby(by = "hh")[["paid", "busines", "non-paid", "farm"]].sum()
+extensivelaboururban = dataurban.sum(axis=1)
+datarural = datarural.groupby(by = "hh")[["paid", "busines", "non-paid", "farm"]].sum()
+extensivelabourrural = datarural.sum(axis=1)
+
+data = pd.read_stata("gsec8_1.dta")
+data = data.merge(data1, on="HHID", how="left") 
+data = data[["HHID","h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g", "urban"]].dropna()
+dataurban = data.loc[data["urban"].isin([1]),["HHID","h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g"]]
+datarural = data.loc[data["urban"].isin([0]),["HHID","h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g"]]
+dataurban = dataurban.groupby(by = "HHID")[["h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g"]].sum()
+datarural = datarural.groupby(by = "HHID")[["h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g"]].sum()
+intensivelaboururban = dataurban.sum(axis=1)
+intensivelabourrural = datarural.sum(axis=1)
+
+#%% QUESTION 2.1:
+#2.1.1 Comparation for rural and urban areas of extensive and intensive margin:
+
+sum_extensivelaboururban = extensivelaboururban.describe()
+sum_extensivelabourrural = extensivelabourrural.describe()
+sum_intensivelaboururban = intensivelaboururban.describe()
+sum_intensivelabourrural = intensivelabourrural.describe()
+print(sum_extensivelaboururban.to_latex())
+print(sum_extensivelabourrural.to_latex())
+print(sum_intensivelaboururban.to_latex())
+print(sum_intensivelabourrural.to_latex())
+
+# 2.1.2 Histograms:
+#BINS:
+extensivelaboururban.hist(bins = 20)
+extensivelabourrural.hist(bins= 20)
+intensivelaboururban.hist(bins= 20)
+intensivelabourrural.hist(bins= 20)
+labels = ["extensivelaboururban","extensivelabourrural", "intensivelaboururban", "intensivelabourrural"]
+plt.legend(labels)
+
+#VARIANCES OF LOGARITHMS
+extensivelaboururban = extensivelaboururban.replace(0, 1)
+lnextensivelaboururban = np.log(extensivelaboururban)
+varextensivelaboururban=  np.var(lnextensivelaboururban)
+extensivelabourrural = extensivelabourrural.replace(0, 1)
+lnextensivelabourrural = np.log(extensivelabourrural)
+varextensivelabourrural =  np.var(lnextensivelabourrural)
+intensivelaboururban = intensivelaboururban.replace(0, 1)
+lnintensivelaboururban = np.log(intensivelaboururban)
+varintensivelaboururban =  np.var(lnintensivelaboururban)
+intensivelabourrural = intensivelabourrural.replace(0, 1)
+lnintensivelabourrural= np.log(intensivelabourrural)
+varintensivelabourrural =  np.var(lnintensivelabourrural)
+
+# 2.1.4 LIFECICLE
+data = pd.read_stata("gsec8_1.dta")
+data = data.merge(data1, on="HHID", how="left") 
+data = data[["HHID","h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g", "urban", "Age"]].dropna()
+dataurban = data.loc[data["urban"].isin([1]),["HHID","h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g","Age"]]
+datarural = data.loc[data["urban"].isin([0]),["HHID","h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g", "Age"]]
+daturban = dataurban.groupby(by = "HHID")[["h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g"]].sum()
+datural = datarural.groupby(by = "HHID")[["h8q36a","h8q36b","h8q36c","h8q36d","h8q36e","h8q36f","h8q36g"]].sum()
+daturban = daturban.reset_index()
+datural = datural.reset_index()
+dataurban = daturban.merge(dataurban["Age"], on = "HHID", how = "left")
+datarural = datural.merge(datural["Age"], on = "HHID", how = "left")
+intensivelaboururban = dataurban.sum(axis=1)
+intensivelabourrural = datarural.sum(axis=1)
